@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Mini Google Meet</title>
+<style>
+body { font-family: Arial; background:#111; color:white; text-align:center; }
+#videos { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; }
+video { width:240px; border-radius:8px; background:black; }
+button { padding:10px 15px; margin:5px; }
+</style>
+</head>
+
+<body>
+<h2>Mini Google Meet</h2>
+
+<input id="room" placeholder="Room ID">
+<button onclick="join()">Join</button>
+
+<div id="videos"></div>
+
+<script>
+let pc, ws;
+
+async function join() {
+    const room = document.getElementById("room").value;
+
+    ws = new WebSocket(`wss://${location.host}/ws`);
+
+    ws.onopen = async () => {
+        ws.send(JSON.stringify({ type:"join", room }));
+
+        pc = new RTCPeerConnection({
+            iceServers: [{ urls:"stun:stun.l.google.com:19302" }]
+        });
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video:true,
+            audio:true
+        });
+
+        addVideo(stream, true);
+        stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+        pc.ontrack = e => addVideo(e.streams[0]);
+
+        pc.onicecandidate = e => {
+            if (e.candidate) {
+                ws.send(JSON.stringify({
+                    type:"candidate",
+                    candidate:e.candidate
+                }));
+            }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        ws.send(JSON.stringify({
+            type:"offer",
+            offer:pc.localDescription
+        }));
+    };
+
+    ws.onmessage = async e => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "answer") {
+            await pc.setRemoteDescription(msg.answer);
+        }
+    };
+}
+
+function addVideo(stream, muted=false) {
+    const v = document.createElement("video");
+    v.srcObject = stream;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.muted = muted;
+    document.getElementById("videos").appendChild(v);
+}
+</script>
+</body>
+</html>
